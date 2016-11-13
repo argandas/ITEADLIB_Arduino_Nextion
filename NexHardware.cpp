@@ -14,24 +14,6 @@
  */
 #include "NexHardware.h"
 
-#define NEX_RET_CMD_FINISHED            (0x01)
-#define NEX_RET_EVENT_LAUNCHED          (0x88)
-#define NEX_RET_EVENT_UPGRADED          (0x89)
-#define NEX_RET_EVENT_TOUCH_HEAD            (0x65)     
-#define NEX_RET_EVENT_POSITION_HEAD         (0x67)
-#define NEX_RET_EVENT_SLEEP_POSITION_HEAD   (0x68)
-#define NEX_RET_CURRENT_PAGE_ID_HEAD        (0x66)
-#define NEX_RET_STRING_HEAD                 (0x70)
-#define NEX_RET_NUMBER_HEAD                 (0x71)
-#define NEX_RET_INVALID_CMD             (0x00)
-#define NEX_RET_INVALID_COMPONENT_ID    (0x02)
-#define NEX_RET_INVALID_PAGE_ID         (0x03)
-#define NEX_RET_INVALID_PICTURE_ID      (0x04)
-#define NEX_RET_INVALID_FONT_ID         (0x05)
-#define NEX_RET_INVALID_BAUD            (0x11)
-#define NEX_RET_INVALID_VARIABLE        (0x1A)
-#define NEX_RET_INVALID_OPERATION       (0x1B)
-
 /*
  * Receive uint32_t data. 
  * 
@@ -45,44 +27,22 @@
 bool recvRetNumber(uint32_t *number, uint32_t timeout)
 {
     bool ret = false;
-    uint8_t temp[8] = {0};
+    uint8_t temp[8];
 
-    if (!number)
+    if (NULL != number)
     {
-        goto __return;
+        while (recvCommand(temp, sizeof(temp), timeout))
+        {
+            if ((temp[0] == NEX_RET_NUMBER_HEAD) && (temp[5] == 0xFF) && (temp[6] == 0xFF) && (temp[7] == 0xFF))
+            {
+                *number = (temp[4] << 24) | (temp[3] << 16) | (temp[2] << 8) | (temp[1]);
+                ret = true;
+                break;
+            }
+        }
     }
-    
-    nexSerial.setTimeout(timeout);
-    if (sizeof(temp) != nexSerial.readBytes((char *)temp, sizeof(temp)))
-    {
-        goto __return;
-    }
-
-    if (temp[0] == NEX_RET_NUMBER_HEAD
-        && temp[5] == 0xFF
-        && temp[6] == 0xFF
-        && temp[7] == 0xFF
-        )
-    {
-        *number = (temp[4] << 24) | (temp[3] << 16) | (temp[2] << 8) | (temp[1]);
-        ret = true;
-    }
-
-__return:
-
-    if (ret) 
-    {
-        dbSerialPrint("recvRetNumber :");
-        dbSerialPrintln(*number);
-    }
-    else
-    {
-        dbSerialPrintln("recvRetNumber err");
-    }
-    
     return ret;
 }
-
 
 /*
  * Receive string data. 
@@ -96,6 +56,30 @@ __return:
  */
 uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
 {
+#if 0
+    /* Allocate enough memory for the requested string */
+    char* __temp = (char*) malloc(len + 4);
+
+    /* Check allocated memory */
+    if((NULL != __temp) && (NULL != buffer))
+    {
+        while(recvCommand(__temp, len + 4, timeout))
+        {
+            if (__temp[0] == NEX_RET_STRING_HEAD)
+            {
+                /* Received string */
+                *number = (temp[4] << 24) | (temp[3] << 16) | (temp[2] << 8) | (temp[1]);
+                ret = true;
+                break;
+            }
+        }
+
+    }
+
+    /* Free memory */
+    free (__temp);
+#endif
+
     uint16_t ret = 0;
     bool str_start_flag = false;
     uint8_t cnt_0xff = 0;
@@ -107,7 +91,7 @@ uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
     {
         goto __return;
     }
-    
+
     start = millis();
     while (millis() - start <= timeout)
     {
@@ -118,7 +102,7 @@ uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
             {
                 if (0xFF == c)
                 {
-                    cnt_0xff++;                    
+                    cnt_0xff++;
                     if (cnt_0xff >= 3)
                     {
                         break;
@@ -126,7 +110,7 @@ uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
                 }
                 else
                 {
-                    temp += (char)c;
+                    temp += (char) c;
                 }
             }
             else if (NEX_RET_STRING_HEAD == c)
@@ -134,7 +118,7 @@ uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
                 str_start_flag = true;
             }
         }
-        
+
         if (cnt_0xff >= 3)
         {
             break;
@@ -144,8 +128,8 @@ uint16_t recvRetString(char *buffer, uint16_t len, uint32_t timeout)
     ret = temp.length();
     ret = ret > len ? len : ret;
     strncpy(buffer, temp.c_str(), ret);
-    
-__return:
+
+    __return:
 
     dbSerialPrint("recvRetString[");
     dbSerialPrint(temp.length());
@@ -163,17 +147,119 @@ __return:
  */
 void sendCommand(const char* cmd)
 {
+    char* temp = (char*) cmd;
     while (nexSerial.available())
     {
         nexSerial.read();
     }
-    
+
+    dbSerialPrint(F("[NEX] Tx: "));
+
+    /* Print byte */
+    for (; *temp != NULL; temp++)
+    {
+        if (0x20 <= *temp || 0x7F > *temp)
+        {
+            /* Printable Chars */dbSerialPrint(*temp);
+        }
+        else
+        {
+            dbSerialPrint(" ");
+            /* Non-printable Chars */
+            if (0x10 > *temp)
+            {
+                dbSerialPrint("0");
+            }
+            dbSerialPrint(String((uint8_t)*temp, HEX));
+        }
+    }
+    dbSerialPrintln();
+
     nexSerial.print(cmd);
     nexSerial.write(0xFF);
     nexSerial.write(0xFF);
     nexSerial.write(0xFF);
 }
 
+uint8_t recvCommand(uint8_t* buff, int len, unsigned long timeout)
+{
+    /* EOL Counter:
+     * The EOL counter is static because this variable will count how many EOL characters
+     * have been received even if the message was interrupted due to buffer limitations,
+     * this will prevent later messages lost. This counter is cleared only when 3 continuous
+     * EOL characters are received.
+      */
+    static uint8_t cnt = 0;
+
+    uint8_t ret = 0;
+    uint8_t idx = 0;
+    const uint8_t _end = 0xFF; //end of file x3
+    unsigned long tStart = millis();
+
+    while ((nexSerial.available() == 0) && ((millis() - tStart) < timeout))
+    {
+        /* Do nothing, just wait for data */
+        delay(10);
+    }
+
+    if (nexSerial.available() > 0)
+    {
+        /* Clear buffer */
+        memset(buff, 0, len);
+
+        dbSerialPrint(F("[NEX] Rx:"));
+
+        /* Fill buffer */
+        for (idx = 0; (nexSerial.available() > 0) && (len > idx) && (0 == ret); idx++, buff++)
+        {
+            /* Save received char */
+            *buff = (uint8_t) nexSerial.read();
+
+            /* Print byte */
+            {
+                dbSerialPrint(" ");
+                if (0x10 > *buff)
+                {
+                    dbSerialPrint("0");
+                }
+                dbSerialPrint(String(*buff, HEX));
+            }
+
+            if (_end == *buff)
+            {
+                cnt++;
+                if (3 <= cnt)
+                {
+                    /* Reset EOL counter */
+                    cnt = 0;
+                    /* Return how many bytes were received */
+                    ret = idx + 1;
+                    continue;
+                }
+            }
+            else
+            {
+                /* Reset EOL count */
+                cnt = 0;
+            }
+            delay(10);
+        }
+
+        /* Print used/available buffer space */
+#if 0
+        dbSerialPrintln(" (" + String(idx) + "/" + String(len) + ")\r\n");
+#else
+        dbSerialPrintln();
+#endif
+        dbSerialPrintln();
+    }
+    else
+    {
+        /* Timer has expired */
+    }
+
+    return ret;
+}
 
 /*
  * Command is executed successfully. 
@@ -185,43 +271,27 @@ void sendCommand(const char* cmd)
  *
  */
 bool recvRetCommandFinished(uint32_t timeout)
-{    
+{
     bool ret = false;
-    uint8_t temp[4] = {0};
-    
-    nexSerial.setTimeout(timeout);
-    if (sizeof(temp) != nexSerial.readBytes((char *)temp, sizeof(temp)))
+    uint8_t temp[4];
+
+    while (recvCommand(temp, sizeof(temp), timeout))
     {
-        ret = false;
+        if ((temp[0] == NEX_RET_CMD_FINISHED) && (temp[1] == 0xFF) && (temp[2] == 0xFF) && (temp[3] == 0xFF))
+        {
+            ret = true;
+            break;
+        }
     }
 
-    if (temp[0] == NEX_RET_CMD_FINISHED
-        && temp[1] == 0xFF
-        && temp[2] == 0xFF
-        && temp[3] == 0xFF
-        )
-    {
-        ret = true;
-    }
-
-    if (ret) 
-    {
-        dbSerialPrintln("recvRetCommandFinished ok");
-    }
-    else
-    {
-        dbSerialPrintln("recvRetCommandFinished err");
-    }
-    
     return ret;
 }
-
 
 bool nexInit(void)
 {
     bool ret1 = false;
     bool ret2 = false;
-    
+
     dbSerialBegin(9600);
     nexSerial.begin(9600);
     sendCommand("");
@@ -234,33 +304,13 @@ bool nexInit(void)
 
 void nexLoop(NexTouch *nex_listen_list[])
 {
-    static uint8_t __buffer[10];
-    
-    uint16_t i;
-    uint8_t c;  
-    
-    while (nexSerial.available() > 0)
-    {   
-        delay(10);
-        c = nexSerial.read();
-        
-        if (NEX_RET_EVENT_TOUCH_HEAD == c)
+    static uint8_t __buffer[7];
+
+    while (recvCommand(__buffer, sizeof(__buffer)))
+    {
+        if ((__buffer[0] == NEX_RET_EVENT_TOUCH_HEAD) && (__buffer[4] == 0xFF) && (__buffer[5] == 0xFF) && (__buffer[6] == 0xFF))
         {
-            if (nexSerial.available() >= 6)
-            {
-                __buffer[0] = c;  
-                for (i = 1; i < 7; i++)
-                {
-                    __buffer[i] = nexSerial.read();
-                }
-                __buffer[i] = 0x00;
-                
-                if (0xFF == __buffer[4] && 0xFF == __buffer[5] && 0xFF == __buffer[6])
-                {
-                    NexTouch::iterate(nex_listen_list, __buffer[1], __buffer[2], (int32_t)__buffer[3]);
-                }
-                
-            }
+            NexTouch::iterate(nex_listen_list, __buffer[1], __buffer[2], (int32_t) __buffer[3]);
         }
     }
 }

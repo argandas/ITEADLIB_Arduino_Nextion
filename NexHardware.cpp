@@ -153,14 +153,16 @@ void sendCommand(const char* cmd)
         nexSerial.read();
     }
 
+#ifdef DEBUG_SERIAL_ENABLE
     dbSerialPrint(F("[NEX] Tx: "));
 
-    /* Print byte */
+    /* Print Command */
     for (; *temp != NULL; temp++)
     {
         if (0x20 <= *temp || 0x7F > *temp)
         {
-            /* Printable Chars */dbSerialPrint(*temp);
+            /* Printable Chars */
+            dbSerialPrint(*temp);
         }
         else
         {
@@ -174,6 +176,7 @@ void sendCommand(const char* cmd)
         }
     }
     dbSerialPrintln();
+#endif 
 
     nexSerial.print(cmd);
     nexSerial.write(0xFF);
@@ -207,7 +210,9 @@ uint8_t recvCommand(uint8_t* buff, int len, unsigned long timeout)
         /* Clear buffer */
         memset(buff, 0, len);
 
+#ifdef DEBUG_SERIAL_ENABLE
         dbSerialPrint(F("[NEX] Rx:"));
+#endif
 
         /* Fill buffer */
         for (idx = 0; (nexSerial.available() > 0) && (len > idx) && (0 == ret); idx++, buff++)
@@ -215,7 +220,8 @@ uint8_t recvCommand(uint8_t* buff, int len, unsigned long timeout)
             /* Save received char */
             *buff = (uint8_t) nexSerial.read();
 
-            /* Print byte */
+#ifdef DEBUG_SERIAL_ENABLE
+            /* Print received */
             {
                 dbSerialPrint(" ");
                 if (0x10 > *buff)
@@ -224,6 +230,7 @@ uint8_t recvCommand(uint8_t* buff, int len, unsigned long timeout)
                 }
                 dbSerialPrint(String(*buff, HEX));
             }
+#endif
 
             if (_end == *buff)
             {
@@ -242,7 +249,6 @@ uint8_t recvCommand(uint8_t* buff, int len, unsigned long timeout)
                 /* Reset EOL count */
                 cnt = 0;
             }
-            delay(10);
         }
 
         /* Print used/available buffer space */
